@@ -22,8 +22,9 @@ import { dateKey, minutesToKor, minutesToHM, timeHM } from '@/lib/time';
 import { shortHash } from '@/lib/hash';
 import { confirmationCovering, verifyConfirmation } from '@/lib/confirmation';
 import { toCsv, exportCsv } from '@/lib/csv';
-import { AttendanceRecord } from '@/lib/types';
+import { AttendanceRecord, MealAllowance } from '@/lib/types';
 import { AttendanceCalendar } from '@/components/AttendanceCalendar';
+import { MealLine } from '@/components/MealLine';
 import { AdminDayEditor } from '@/components/AdminDayEditor';
 import { computeAttendanceScore } from '@/lib/attendanceScore';
 import { AttendanceScoreCard } from '@/components/AttendanceScoreCard';
@@ -62,20 +63,34 @@ export default function Approvals() {
   const policy = s.settings.workPolicy;
 
   const dayRows = useMemo(() => {
-    if (!viewId) return [] as { date: string; rec?: AttendanceRecord; comp: DayComputation }[];
+    if (!viewId) return [] as { date: string; rec?: AttendanceRecord; comp: DayComputation; meal?: MealAllowance; counted: boolean }[];
     const recs = s.records.filter((r) => r.userId === viewId && r.date.startsWith(monthPrefix));
     const lvs = s.leaves.filter((l) => l.userId === viewId && l.status === 'APPROVED' && l.date.startsWith(monthPrefix));
-    const dates = new Set<string>();
-    recs.forEach((r) => dates.add(r.date));
-    lvs.forEach((l) => dates.add(l.date));
+    const mls = s.meals.filter((m) => m.userId === viewId && m.date.startsWith(monthPrefix));
+    // 근태(기록·휴가)가 있는 날 = 집계 대상. 식대만 있는 날도 목록에는 띄우되 집계에선 뺀다
+    // — 안 그러면 식대 하나 때문에 그날이 소정근무일로 잡혀 월 집계가 틀어진다.
+    const attendanceDates = new Set<string>();
+    recs.forEach((r) => attendanceDates.add(r.date));
+    lvs.forEach((l) => attendanceDates.add(l.date));
+    const dates = new Set(attendanceDates);
+    mls.forEach((m) => dates.add(m.date));
     return [...dates].sort().reverse().map((d) => {
       const rec = recs.find((r) => r.date === d);
       const leaves = lvs.filter((l) => l.date === d);
-      return { date: d, rec, comp: computeDay(rec, leaves, policy, { dateStr: d, todayStr: dateKey() }) };
+      return {
+        date: d,
+        rec,
+        comp: computeDay(rec, leaves, policy, { dateStr: d, todayStr: dateKey() }),
+        meal: mls.find((m) => m.date === d),
+        counted: attendanceDates.has(d),
+      };
     });
-  }, [s.records, s.leaves, viewId, monthPrefix, policy]);
+  }, [s.records, s.leaves, s.meals, viewId, monthPrefix, policy]);
 
-  const summary = useMemo(() => summarize(dayRows.map((r) => r.comp), dayRows.map((r) => r.rec).filter(Boolean) as AttendanceRecord[]), [dayRows]);
+  const summary = useMemo(() => {
+    const counted = dayRows.filter((r) => r.counted);
+    return summarize(counted.map((r) => r.comp), counted.map((r) => r.rec).filter(Boolean) as AttendanceRecord[]);
+  }, [dayRows]);
 
   // 이 직원의 '이상징후 확인 완료' 날짜들 — 확인한 날은 경고 표시를 가라앉힌다(집계·점수는 그대로).
   const reviewedDates = useMemo(
@@ -99,7 +114,7 @@ export default function Approvals() {
   );
 
   function onExport() {
-    const headers = ['날짜', '유형', '계획출근', '출근', '퇴근', '실근로(분)', '소정(분)', '연차(분)', '유급휴가(분)', '무급휴가(분)', '초과/부족(분)', '상태', '해시'];
+    const headers = ['날짜', '유형', '계획출근', '출근', '퇴근', '실근로(분)', '소정(분)', '연차(분)', '유급휴가(분)', '무급휴가(분)', '초과/부족(분)', '야근식대(원)', '상태', '해시'];
     const rows = dayRows.map((r) => [
       r.date,
       r.rec?.type === 'TRIP' ? '출장' : '근무',
@@ -112,6 +127,7 @@ export default function Approvals() {
       Math.round(r.comp.paidMinutes),
       Math.round(r.comp.unpaidMinutes),
       Math.round(r.comp.diffMinutes),
+      r.meal?.amount ?? '',
       r.comp.labels.join(' '),
       shortHash(r.rec?.hash),
     ]);
@@ -261,6 +277,7 @@ export default function Approvals() {
               leaves={s.leaves}
               policy={policy}
               holidays={s.holidays}
+              meals={s.meals}
               onEditDay={setEditDate}
               reviewedDates={reviewedDates}
               onToggleReview={toggleReview}
@@ -277,6 +294,7 @@ export default function Approvals() {
                     date={r.date}
                     rec={r.rec}
                     comp={r.comp}
+                    meal={r.meal}
                     locked={!!cf}
                     tampered={tampered}
                     reviewed={reviewedDates.has(r.date)}
@@ -301,6 +319,7 @@ function DayCard({
   date,
   rec,
   comp,
+  meal,
   locked,
   tampered,
   reviewed,
@@ -310,6 +329,7 @@ function DayCard({
   date: string;
   rec?: AttendanceRecord;
   comp: DayComputation;
+  meal?: MealAllowance;
   locked?: boolean;
   tampered?: boolean;
   reviewed?: boolean;
@@ -352,6 +372,7 @@ function DayCard({
           ))}
         </Row>
       )}
+      {meal ? <MealLine meal={meal} comp={comp} /> : null}
       {rec?.hash ? <Muted size={11}>해시 {shortHash(rec.hash)}</Muted> : null}
       {onToggleReview && hasAnomaly ? (
         <Button

@@ -323,7 +323,7 @@ export default function History() {
       </Row>
 
       {dayView === 'calendar' ? (
-        viewId ? <AttendanceCalendar userId={viewId} records={s.records} leaves={s.leaves} policy={policy} holidays={s.holidays} /> : null
+        viewId ? <AttendanceCalendar userId={viewId} records={s.records} leaves={s.leaves} policy={policy} holidays={s.holidays} meals={s.meals} /> : null
       ) : (
         <>
           {dayRows.length === 0 && <Card><Muted>기록이 없습니다</Muted></Card>}

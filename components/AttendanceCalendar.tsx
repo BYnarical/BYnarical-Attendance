@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import { Card, Muted, Body, Badge, Row, Divider, Button, Marker } from '@/components/ui';
+import { MealLine } from '@/components/MealLine';
 import { useTheme } from '@/lib/theme';
 import { computeDay, DayComputation, isNormalWorkday } from '@/lib/attendance';
 import { dateKey, minutesOfDay, minutesToKor, minutesToHM, timeHM } from '@/lib/time';
 import { shortHash } from '@/lib/hash';
 import { leaveCategoryLabel } from '@/lib/leave';
 import { labelColor, leaveStyle, tone } from '@/lib/palette';
-import { AttendanceRecord, LeaveRequest, WorkPolicy, Holiday } from '@/lib/types';
+import { AttendanceRecord, LeaveRequest, WorkPolicy, Holiday, MealAllowance } from '@/lib/types';
 
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -20,6 +21,7 @@ interface DayCell {
   hasData: boolean;
   isFuture: boolean;
   holidayName?: string;
+  meal?: MealAllowance; // 그날 쓴 야근식대(하루 1건)
 }
 
 function isAnomaly(c: DayComputation) {
@@ -32,6 +34,7 @@ export function AttendanceCalendar({
   leaves,
   policy,
   holidays = [],
+  meals = [],
   onEditDay,
   reviewedDates,
   onToggleReview,
@@ -41,6 +44,7 @@ export function AttendanceCalendar({
   leaves: LeaveRequest[];
   policy: WorkPolicy;
   holidays?: Holiday[];
+  meals?: MealAllowance[]; // 야근식대 — 쓴 날에 🍚 마커와 상세를 붙인다
   onEditDay?: (date: string) => void;
   // 관리자 전용: 이상징후 확인 처리된 날짜(표시를 가라앉힘) + 확인/해제 토글
   reviewedDates?: Set<string>;
@@ -75,6 +79,13 @@ export function AttendanceCalendar({
     () => leaves.filter((l) => l.userId === userId && l.status === 'APPROVED' && l.date.startsWith(monthPrefix)),
     [leaves, userId, monthPrefix]
   );
+  const mealByDate = useMemo(() => {
+    const map = new Map<string, MealAllowance>();
+    meals.forEach((m) => {
+      if (m.userId === userId && m.date.startsWith(monthPrefix)) map.set(m.date, m);
+    });
+    return map;
+  }, [meals, userId, monthPrefix]);
 
   const cells = useMemo<DayCell[]>(() => {
     const daysInMonth = new Date(y, m + 1, 0).getDate();
@@ -94,10 +105,11 @@ export function AttendanceCalendar({
         hasData: !!rec || dayLeaves.length > 0,
         isFuture: date > today,
         holidayName: holidayMap.get(date),
+        meal: mealByDate.get(date),
       });
     }
     return out;
-  }, [y, m, monthPrefix, myRecords, myLeaves, policy, today, nowMin, holidayMap]);
+  }, [y, m, monthPrefix, myRecords, myLeaves, policy, today, nowMin, holidayMap, mealByDate]);
 
   const leadBlanks = cells.length > 0 ? cells[0].weekday : 0;
   const grid: (DayCell | null)[] = [...Array(leadBlanks).fill(null), ...cells];
@@ -112,6 +124,8 @@ export function AttendanceCalendar({
   const paidDays = cells.filter((c) => c.comp.isFullLeave && c.comp.leaveCategory === 'PAID').length;
   const unpaidDays = cells.filter((c) => c.comp.isFullLeave && c.comp.leaveCategory === 'UNPAID').length;
   const hasTrip = cells.some((c) => c.rec?.type === 'TRIP');
+  const mealCells = cells.filter((c) => c.meal);
+  const mealTotal = mealCells.reduce((sum, c) => sum + (c.meal?.amount || 0), 0);
   // 이번 달에 실제로 나타난 항목만 범례에 표시 (색이 많아 보이는 것 방지)
   const summaryTail = [
     annualDays > 0 ? `연차 ${annualDays}일` : '',
@@ -201,12 +215,14 @@ export function AttendanceCalendar({
                 <Text style={{ fontSize: 13, fontWeight: isToday ? '800' : '600', color: numColor }}>
                   {c.day}
                 </Text>
-                {/* 마커는 색 + 모양 둘 다 다르게(●정상 ▲이상 ■연차/유급 □무급) — 색약도 구분 가능 */}
+                {/* 마커는 색 + 모양 둘 다 다르게(●정상 ▲이상 ■연차/유급 □무급) — 색약도 구분 가능.
+                    야근식대는 도형 대신 🍚 — 남은 도형이 없기도 하고, 근태 상태가 아니라 성격이 다르다. */}
                 <Row style={{ gap: 2, height: 7, alignItems: 'center' }}>
                   {okWork && <Marker shape={workTone.marker} color={workTone.color} />}
                   {/* 관리자가 확인한 이상징후는 회색으로 가라앉힌다(사실은 남기되 경고는 아님) */}
                   {anomaly && <Marker shape="triangle" color={reviewedDates?.has(c.date) ? t.textFaint : t.danger} />}
                   {lv && <Marker shape={lv.marker} color={lv.color} />}
+                  {c.meal && <Text style={{ fontSize: 8, lineHeight: 9 }}>🍚</Text>}
                 </Row>
               </View>
             </Pressable>
@@ -223,6 +239,14 @@ export function AttendanceCalendar({
         <Legend tone="unpaid" />
         {hasTrip && <Legend tone="trip" label="출장" />}
         <Legend tone="holiday" chip />
+        {mealCells.length > 0 && (
+          <Row style={{ gap: 4, alignItems: 'center' }}>
+            <Text style={{ fontSize: 9 }}>🍚</Text>
+            <Text style={{ fontSize: 11, color: t.textDim }}>
+              야근식대 {mealCells.length}일 · {mealTotal.toLocaleString('ko-KR')}원
+            </Text>
+          </Row>
+        )}
       </Row>
 
       {/* 선택일 상세 */}
@@ -304,6 +328,7 @@ function DayDetail({
           ))}
         </Row>
       )}
+      {cell.meal && <MealLine meal={cell.meal} comp={comp} />}
       {onToggleReview && isAnomaly(comp) ? (
         reviewed ? (
           <Row style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

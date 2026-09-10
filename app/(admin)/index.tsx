@@ -19,7 +19,7 @@ import { useTheme } from '@/lib/theme';
 import { dateKey, minutesToHM, minutesToKor, minutesOfDay } from '@/lib/time';
 import { hoursToDayLabel, leaveCategoryLabel } from '@/lib/leave';
 import { leaveStyle } from '@/lib/palette';
-import { buildEmployeeOverview, EmployeeOverview, MealEntry, OverviewInput, TodayStatus } from '@/lib/adminOverview';
+import { buildEmployeeOverview, EmployeeOverview, OverviewInput, TodayStatus } from '@/lib/adminOverview';
 import { computeAttendanceScore } from '@/lib/attendanceScore';
 import { AttendanceScoreCard, gradeColor } from '@/components/AttendanceScoreCard';
 
@@ -303,19 +303,11 @@ function EmployeeCard({ o, expanded, onToggle }: { o: EmployeeOverview; expanded
             <KV k="무급휴가(이번달)" v={`${o.month.unpaidMinutes / 60}h · 종일 ${o.month.unpaidFullDays}일`} />
           )}
           <KV k="미서명 주" v={o.unsignedWeeks > 0 ? `${o.unsignedWeeks}주` : '없음'} />
-
-          <Divider />
-          <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ fontWeight: '700', color: t.textDim, fontSize: 13 }}>🍚 이번달 야근식대</Text>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: t.text }}>
-              {o.mealDays}회 · {o.mealTotal.toLocaleString('ko-KR')}원
-            </Text>
-          </Row>
-          {o.mealEntries.length === 0 ? (
-            <Muted size={12}>사용 내역이 없습니다.</Muted>
-          ) : (
-            o.mealEntries.map((m) => <MealRow key={m.date} m={m} />)
-          )}
+          <KV
+            k="🍚 이번달 야근식대"
+            v={o.mealDays > 0 ? `${o.mealDays}회 · ${o.mealTotal.toLocaleString('ko-KR')}원` : '없음'}
+          />
+          {o.mealDays > 0 && <Muted size={11}>쓴 날짜는 승인/근태 탭 달력에서 확인하세요.</Muted>}
           {o.balance && (
             <>
               <Divider />
@@ -332,28 +324,6 @@ function EmployeeCard({ o, expanded, onToggle }: { o: EmployeeOverview; expanded
 }
 
 // 야근식대를 쓴 날 한 줄 — 날짜(요일) · 퇴근 시각 · 초과근무 · 금액.
-// 초과근무가 없는 날은 주황으로 표시해 관리자가 바로 눈치챌 수 있게 한다.
-function MealRow({ m }: { m: MealEntry }) {
-  const t = useTheme();
-  const wd = ['일', '월', '화', '수', '목', '금', '토'][new Date(m.date + 'T00:00:00Z').getUTCDay()];
-  const noOvertime = m.overtimeMinutes <= 0;
-  return (
-    <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-      <View style={{ flex: 1, gap: 1 }}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: t.text }}>
-          {m.date} ({wd})
-        </Text>
-        <Text style={{ fontSize: 11, color: noOvertime ? t.warning : t.textDim }}>
-          {m.checkOutMin != null ? `${minutesToHM(m.checkOutMin)} 퇴근` : '퇴근 미기록'}
-          {noOvertime ? ' · 초과근무 없음' : ` · 초과 ${minutesToKor(m.overtimeMinutes)}`}
-          {m.note ? ` · ${m.note}` : ''}
-        </Text>
-      </View>
-      <Text style={{ fontSize: 13, fontWeight: '700', color: t.text }}>{m.amount.toLocaleString('ko-KR')}원</Text>
-    </Row>
-  );
-}
-
 function Metric({ label, value, color }: { label: string; value: string; color?: string }) {
   const t = useTheme();
   return (
