@@ -25,8 +25,15 @@ const argv = process.argv.slice(2);
 const allowDirty = argv.includes('--allow-dirty');
 const desc = argv.find((a) => !a.startsWith('--'));
 
-const git = (args, opts = {}) =>
-  execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', ...opts }).trim();
+const git = (args, opts = {}) => {
+  try {
+    return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', ...opts })?.trim() ?? '';
+  } catch (e) {
+    // execFileSync의 기본 에러는 stderr를 삼켜서 원인을 알 수 없다. 붙여서 다시 던진다.
+    const detail = (e.stderr || '').toString().trim();
+    throw new Error(`git ${args.join(' ')} 실패 (exit ${e.status})${detail ? `\n${detail}` : ''}`);
+  }
+};
 const fail = (msg) => {
   console.error(`✗ ${msg}`);
   process.exit(1);
@@ -58,14 +65,16 @@ const subject = desc || git(['log', '-1', '--pretty=%s']);
 const message = `Deploy: ${subject} (${sha})`;
 
 // --- 3. 임시 worktree 준비 (OneDrive 밖) ---------------------------
-const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'ghpages-'));
+// `git worktree add`는 이미 있는 경로를 거부하므로, 임시 폴더 '안'의 아직 없는 경로를 준다.
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ghpages-'));
+const wt = path.join(tmpRoot, BRANCH);
 const wtName = path.basename(wt);
 let pushed = false;
 
 try {
   let hasRemoteBranch = true;
   try {
-    git([REMOTE === 'origin' ? 'fetch' : 'fetch', REMOTE, BRANCH], { stdio: ['ignore', 'ignore', 'inherit'] });
+    git(['fetch', REMOTE, BRANCH]);
   } catch {
     hasRemoteBranch = false;
     console.log(`ℹ ${REMOTE}/${BRANCH}가 없습니다. 새로 만듭니다.`);
@@ -100,22 +109,27 @@ try {
   }
 } finally {
   // --- 6. 정리 (OneDrive가 .git/worktrees를 잠그는 일이 있어 실패해도 넘어간다) ---
+  let removed = false;
   try {
     git(['worktree', 'remove', '--force', wt]);
+    removed = true;
   } catch {
-    fs.rmSync(wt, { recursive: true, force: true });
+    /* 아래에서 직접 지운다 */
+  }
+  if (!removed) {
     try {
       git(['worktree', 'prune']);
     } catch {
       /* 아래에서 메타데이터를 직접 지운다 */
     }
-    const meta = path.join(git(['rev-parse', '--git-common-dir']), 'worktrees', wtName);
+    const meta = path.join(path.resolve(ROOT, git(['rev-parse', '--git-common-dir'])), 'worktrees', wtName);
     try {
       fs.rmSync(meta, { recursive: true, force: true });
     } catch {
       console.warn(`⚠ 임시 worktree 메타데이터가 남았습니다: ${meta}\n  나중에 \`git worktree prune\`으로 정리하세요.`);
     }
   }
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 if (pushed) {
