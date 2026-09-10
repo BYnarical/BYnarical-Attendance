@@ -25,7 +25,6 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
-    "gh-pages": "^6.3.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -33,8 +32,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "export:web": "expo export --platform web --output-dir dist",
-    "deploy:web": "gh-pages -d dist -b gh-pages -t",
+    "export:web": "expo export --platform web --output-dir dist && node scripts/postexport-web.mjs",
+    "deploy:web": "node scripts/deploy-web.mjs",
     "typecheck": "tsc --noEmit"
   },
   "private": true

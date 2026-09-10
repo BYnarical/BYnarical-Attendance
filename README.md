@@ -53,9 +53,16 @@ npm run typecheck # 타입 체크
 ## 웹 배포 (GitHub Pages)
 
 ```bash
-npm run export:web   # dist/ 에 정적 웹 빌드(SPA)
-npm run deploy:web   # gh-pages 브랜치로 배포
+npm run export:web   # dist/ 에 정적 웹 빌드(SPA) + .nojekyll·404.html 생성
+npm run deploy:web   # gh-pages 브랜치로 푸시
 ```
+
+배포 전 변경사항을 먼저 커밋해야 한다 — gh-pages 커밋 메시지에 그 커밋 해시를 남기기 때문이다.
+(급하면 `npm run deploy:web -- --allow-dirty`)
+
+`.nojekyll`과 `404.html`은 `expo export`가 만들지 않지만 둘 다 필수라
+[`scripts/postexport-web.mjs`](./scripts/postexport-web.mjs)가 채운다 — `.nojekyll`이 없으면
+Jekyll이 `_expo/`를 무시해 번들이 404가 나고, `404.html`이 없으면 딥링크가 깨진다.
 
 ## 구조
 
@@ -74,6 +81,7 @@ lib/                도메인 로직
   subway.ts         근처 역·지하철 시간표·집 위치
 assets/subway/      전국 역 좌표 번들(stations.json)
 scripts/            build-stations.mjs (역 데이터 재생성)
+                    postexport-web.mjs · deploy-web.mjs (웹 빌드 마감·gh-pages 배포)
 components/ui.tsx   재사용 UI
 server/Code.gs      Google Apps Script 백엔드
 supabase/functions/subway-timetable  TAGO 시간표 프록시
